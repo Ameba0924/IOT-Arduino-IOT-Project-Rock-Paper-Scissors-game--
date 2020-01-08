@@ -1,0 +1,433 @@
+#include <LiquidCrystal_I2C.h>
+#include<Wire.h>
+
+LiquidCrystal_I2C lcd(0x27,20,4); 
+//결과
+int segcnt; // 세그먼트 카운트 
+int com_rcp;
+int user_rcp; // 결과값을저장할변수 
+//주먹은 1 가위는 2 보자기는 3 (int형)
+
+//세그먼트 번호 표시 
+int digits[10][7] = 
+{
+  // 01234567
+  {0,1,1,1,1,1,1}, //0
+  {0,0,0,1,0,0,1}, //1
+  {1,0,1,1,1,1,0}, //2
+  {1,0,1,1,0,1,1}, //3
+  {1,1,0,1,0,0,1}, //4
+  {1,1,1,0,0,1,1}, //5
+  {1,1,1,0,1,1,1}, //6
+  {0,1,1,1,0,0,1}, //7
+  {1,1,1,1,1,1,1}, //8
+  {1,1,1,1,0,1,1} //9
+};
+
+//노래
+int numTones=49;
+int tones[]={ 
+988,988,988,988,988,988,988,1175,784,880,988,
+1047,1047,1047,1047,1047,988,988,988,988,880,880,988,880,1175,
+988,988,988,988,988,988,988,1175,784,880,988,
+1047,1047,1047,1047,1047,988,988,988,1175,1175,1047,880,784}; //징글벨 
+int Durations[]={1,1,2,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,2,1,1,2,1,2,1,1,1,2,1,1,2,1,1,2,1,1,1,1,1,2,1,1,1,2,1,1,1,1,3};
+
+//
+//이겼을때
+int win_numTones=4;
+int win_tones[]={262, 330, 392, 523};
+int win_Durations[]={1,1,1,1};
+//
+//비겼을때 
+int draw_numTones=4;
+int draw_tones[]={349, 349, 349, 349};
+int draw_Durations[]={1,1,1,1};
+//
+//졌을때
+int lose_numTones=4;
+int lose_tones[]={340,330,294,262};
+int lose_Durations[]={1, 1, 1, 1};
+
+//
+//rock 그림 그릴때 사용하는 것 lcd
+byte Rock00[8] = {B00000,B00000,B00000, B00000, B00000,B11111,B10101,B10101};
+byte Rock10[8] = {B00000,B00000,B00000, B00000, B00000,B11111,B10101,B10101};
+byte Rock01[8] = {B10000,B10000,B11111,B10001,B10111,B10000,B10000,B11111};
+byte Rock11[8] = {B00001,B00001,B00001,B00001,B00001,B00001,B00001,B11111};
+//ss 그림 그릴 때 사용 하는 것 lcd
+byte ss00[8] = {B00000,B00000,B00000,B00000,B00000, B11111,B10000,B11111};
+byte ss10[8] = { B00111,B00101,B00101,B00101,B00101,B11101,B00000,B11100};
+byte ss01[8] = { B00010,B00011,B00010,B00011,B00000,B00000,B00000,B00000};
+byte ss11[8] = {B00000,B11110,B00000,B00000,B11110,B10000,B11111,B00000};
+//paper 그림 그릴때 사용하는 것 lcd
+byte paper00[8] = {B00110,B01111, B11111, B11111, B11111,B11111, B11111, B11111};
+byte paper10[8] = {B00000, B00000, B10000, B10000, B10000, B10000, B10000, B10000};
+byte paper01[8] = {B11111, B11111, B11111, B11111, B11111, B11111, B11111, B11111};
+byte paper11[8] = {B10011,B10111,B11111, B11111, B11111, B11110, B11100, B11000};
+
+
+void setup() {
+    lcd.init(); // 초기화
+    lcd.backlight(); //출력
+     pinMode(2,OUTPUT);
+     pinMode(3,OUTPUT);
+     pinMode(4,OUTPUT);
+     pinMode(5,OUTPUT);
+     pinMode(6,OUTPUT);
+     pinMode(7,OUTPUT);
+     pinMode(8,OUTPUT);
+      // 여기까지 세그먼트 
+    pinMode(10, INPUT_PULLUP); // start버튼 내부풀업사용 ( 브레드보드 간편화)
+    pinMode(11, INPUT_PULLUP); // 주먹
+    pinMode(12, INPUT_PULLUP); // 가위
+    pinMode(13, INPUT_PULLUP); // 보
+    pinMode(9,OUTPUT); // 피에조
+    Serial.begin(9600);
+
+    
+}
+
+void loop() { // (1) 스위치누르기 전상태 
+
+  int start_btn = digitalRead(10); //버튼 인식 starbtn
+
+  main_draw_rcp(); // 가위바위보 표출 
+  if(start_btn == 0) // 버튼인식 누르면 노래나옴 
+  {
+    
+    for(int i=0; i<numTones; i++){
+      //200이 노래 나오도록 하는것
+      int mTime=50*Durations[i];
+      tone(9,tones[i],mTime);
+      //노래 소리 템포 바꾸는건 delay에서
+      delay(200);
+    }
+    
+    noTone(9);
+    gameStart();
+  }
+}
+
+
+void gameStart() // (2) 스위치를 누른후 
+{
+  int rock_btn;
+  int ss_btn;
+  int paper_btn;
+  //화면 표출
+  
+while(true) // 무한루프 
+  {
+    rock_btn = digitalRead(11);
+    ss_btn = digitalRead(12);
+    paper_btn = digitalRead(13);
+    
+    game_draw_rcp();
+    if(rock_btn == 0 || ss_btn == 0 || paper_btn == 0) //내부풀업이라0이 start
+    {
+      Serial.print(rock_btn);
+      Serial.print(ss_btn);
+      Serial.print(paper_btn);
+      break;
+    }
+  }
+  if(rock_btn == 0)
+  {
+    result(1);  //주먹
+  }
+  else if(ss_btn == 0)
+  {
+    result(2);  // 가위
+  }
+  else if(paper_btn== 0)
+  {
+    result(3); //보자기
+  }
+  //버튼 누르면 break 때문에 이쪽으로 넘어가게됌
+}
+
+void result(int num) //(3) 버튼눌렀을경우 결과값 
+{
+  com_rcp = random(1,5); //1,3을 줘야하는데 가위가 상대적으로많이나와서 5까지늘림
+  if(com_rcp == 4)  //4랑 5일경우 1로바꿔줘 주먹과 보자기가 많이나올수있도록(개인차)
+  {
+    com_rcp = 1;
+  }
+  else if(com_rcp == 5)
+  {
+    com_rcp = 3;
+  }
+  user_rcp = num;        // 최종결과를위한 값저장 리절트num인자 
+
+
+//가위바위보 판정
+  if(com_rcp == user_rcp)
+  {
+    //비겼을때
+    result_draw(com_rcp, user_rcp, 2);
+    for(int i=0; i<draw_numTones; i++){
+      int mTime=800*draw_Durations[i];
+      tone(9,draw_tones[i],mTime);
+      delay(1000);
+    }
+    noTone(9);
+    
+    gameStart(); //비겻을때 노래후 다시게임화면으로 
+  }
+  else if(com_rcp -1 == user_rcp) // 이기는 경우의수 
+  {
+    //이김
+    result_draw(com_rcp, user_rcp, 1); 
+    for(int i=0; i<win_numTones; i++){
+      int mTime=800*win_Durations[i];
+      tone(9,win_tones[i],mTime);
+      delay(1000);
+    }
+    noTone(9);
+    seg_win();
+  
+  }
+  else if(com_rcp == 1 && user_rcp == 3) // 이기는 경우의수 
+  {
+    //이김
+    result_draw(com_rcp, user_rcp, 1);
+        for(int i=0; i<win_numTones; i++){
+      int mTime=800*win_Durations[i];
+      tone(9,win_tones[i],mTime);
+      delay(1000);
+    }
+    noTone(9);
+    seg_win();
+  }
+  else if(com_rcp +1 == user_rcp)
+  {
+    //짐
+        result_draw(com_rcp, user_rcp, 3);
+     for(int i=0; i<lose_numTones; i++){
+      int mTime=800*lose_Durations[i];
+      tone(9,lose_tones[i],mTime);
+      delay(1000);
+    }
+    noTone(9);
+  
+  }
+  else if(com_rcp == 3  && user_rcp == 1)
+  {
+    //짐
+      result_draw(com_rcp, user_rcp, 3);
+      for(int i=0; i<lose_numTones; i++){
+      int mTime=800*lose_Durations[i];
+      tone(9,lose_tones[i],mTime);
+      delay(1000);
+    }
+    noTone(9);
+    
+  }
+  //
+}
+
+void result_draw(int com_result, int user_result, int re)
+{ 
+  lcd.clear();
+   if(com_result == 1)
+    {
+      rock_draw(0);
+    }
+    else if(com_result == 2)
+    {
+      ss_draw(0);
+    }
+    else if(com_result == 3)
+    {
+      paper_draw(0);
+    }
+    lcd.setCursor(2,1);
+    lcd.print("VS");
+    if(user_result == 1)
+    {
+      rock_draw(4); // 유저 그림 그릴 공간4로 인식 , 
+    }
+    else if(user_result == 2)
+    {
+      ss_draw(4);
+    }
+    else if(user_result == 3)
+    {
+      paper_draw(4);
+    }
+    lcd.setCursor(7,1);
+    if(re == 1)
+    {
+      lcd.print("win");
+    }
+    else if( re == 2)
+    {
+      lcd.print("draw");
+    }
+    else if( re == 3)
+    {
+      lcd.print("lose");
+    }
+}
+
+void game_draw_rcp() //진행중화면 표시할 그림 메소드
+{
+  rock_draw(0);
+  delay(250);
+  lcd.clear(); //클리어 잔상을 없애기위한 장치 
+  game_draw();
+  delay(250);
+  ss_draw(0);
+  delay(250);
+  lcd.clear();
+  game_draw();
+  delay(250);
+  paper_draw(0);
+  delay(250);
+  lcd.clear();
+  game_draw();
+  delay(250);
+}
+
+void main_draw_rcp() //초기화면 왼쪽 그림 메소드 
+{
+  rock_draw(0);
+  delay(250);
+  lcd.clear();
+  main_draw();//클리어 잔상을 없애기위한 장치 
+  delay(250);
+  ss_draw(0);
+  delay(250);
+  lcd.clear();
+  main_draw();
+  delay(250);
+  paper_draw(0);
+  delay(250);
+  lcd.clear();
+  main_draw();
+  delay(250);
+
+}
+
+void main_draw() // 초기화면
+{
+  lcd.setCursor(3,0);
+  lcd.print("Hi DONGYANG!");
+  lcd.setCursor(3,1);
+  lcd.print("YOUNG X HO");
+}
+
+void game_draw() // 진행화면
+{
+  lcd.setCursor(3,0);
+  lcd.print("SELECT");
+  lcd.setCursor(3,1);
+  lcd.print("SWITHCH!!");
+}
+
+void rock_draw(int i) //인자값을통한 출력문의 위치를 저장함 . 
+{
+     //주먹 사용법
+    lcd.createChar(i, Rock00);
+    lcd.setCursor(i,0);
+    lcd.write(byte(i));
+    
+    lcd.createChar(i+1, Rock01);
+    lcd.setCursor(i,1);
+    lcd.write(byte(i+1));
+    
+    lcd.createChar(i+2, Rock10);
+    lcd.setCursor(i+1,0);
+    lcd.write(byte(i+2));
+    
+    lcd.createChar(i+3, Rock11);
+    lcd.setCursor(i+1,1);
+    lcd.write(byte(i+3)); 
+}
+
+void ss_draw(int i)
+{
+     //주먹 사용법
+    lcd.createChar(i, ss00);
+    lcd.setCursor(i,0);
+    lcd.write(byte(i));
+    
+    lcd.createChar(i+1, ss01);
+    lcd.setCursor(i,1);
+    lcd.write(byte(i+1));
+    
+    lcd.createChar(i+2, ss10);
+    lcd.setCursor(i+1,0);
+    lcd.write(byte(i+2));
+    
+    lcd.createChar(i+3, ss11);
+    lcd.setCursor(i+1,1);
+    lcd.write(byte(i+3)); 
+}
+
+void paper_draw(int i)
+{
+     //주먹 사용법
+    lcd.createChar(i, paper00);
+    lcd.setCursor(i,0);
+    lcd.write(byte(i));
+    
+    lcd.createChar(i+1, paper01);
+    lcd.setCursor(i,1);
+    lcd.write(byte(i+1));
+    
+    lcd.createChar(i+2, paper10);
+    lcd.setCursor(i+1,0);
+    lcd.write(byte(i+2));
+    
+    lcd.createChar(i+3, paper11);
+    lcd.setCursor(i+1,1);
+    lcd.write(byte(i+3)); 
+}
+
+void seg_win(){ // 경품 추천 세그먼트 메소드 
+  int segcnt = random(20,29); 
+  int temp, temp2 = 700;
+  int vic = 523;
+  for(int j=0; j<30; j++) // 최소3바퀴 
+  {
+    if(j >= 10 && j <20)
+    {
+      temp = j-10;
+    }
+    else if(j >=20)
+    {
+      temp = j-20;
+    }
+    else
+    {
+      temp = j;
+    }
+    
+  for(int i=2; i<9; i++)
+  {
+    digitalWrite(i,digits[temp][i-2]);
+     
+  }
+
+  if(j > segcnt -5)
+  {
+     tone(9,vic+=100,temp2-100); //초바뀔때마다 소리나게하는거 마지막엔 긴장감더하기 
+   delay(temp2);  
+   temp2 += 300;
+  }
+  else
+  {
+     tone(9,262,100); //초올라갈때마다 소리나기 
+    delay(200);
+   }  
+  if(j == segcnt)
+
+  break;
+  }
+  Serial.print(segcnt);
+  
+}
+  
+  
